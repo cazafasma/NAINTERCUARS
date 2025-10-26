@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CUARPP — Forjador de Timestamps Fractales con Primos</title>
+<style>
+  :root{
+    --bg:#0a0a0f; --card:#121225; --ink:#e8e8ff; --mut:#9aa0b6;
+    --acc:#7d3cff; --hot:#ff2e86; --ok:#00e0a4; --wire:#26304a;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:24px; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial;
+    background: radial-gradient(1200px 600px at 70% -10%, #1a1037 0%, var(--bg) 42%), var(--bg);
+    color:var(--ink);
+  }
+  h1{margin:0 0 10px; font-size:clamp(22px,3.2vw,36px); letter-spacing:.5px}
+  p.lead{margin:0 0 18px; color:var(--mut)}
+  .grid{
+    display:grid; gap:16px;
+    grid-template-columns: 1fr; 
+  }
+  @media(min-width:980px){
+    .grid{grid-template-columns: 420px 1fr}
+  }
+  .card{
+    background: linear-gradient(180deg, rgba(255,255,255,.03), transparent 40%) , var(--card);
+    border:1px solid #1f2540; border-radius:14px; padding:16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  label{display:block; font-weight:600; margin:10px 0 6px}
+  .row{display:grid; gap:10px; grid-template-columns:1fr 1fr}
+  input,select,button,textarea{
+    width:100%; background:#0f1424; color:var(--ink); border:1px solid #2a3557; 
+    padding:10px 12px; border-radius:10px; outline:none; font-size:14px;
+  }
+  input:focus,select:focus,textarea:focus{border-color:var(--acc); box-shadow:0 0 0 3px rgba(125,60,255,.15)}
+  .btns{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px}
+  button{cursor:pointer; border:1px solid #3a2b66; background:linear-gradient(180deg,#2a1d52,#221a45); font-weight:700}
+  button.primary{background:linear-gradient(180deg,#7d3cff,#5320f2); border-color:#6b2ef1}
+  button.ok{background:linear-gradient(180deg,#00e0a4,#00b883); border-color:#00c693}
+  button.warn{background:linear-gradient(180deg,#ff2e86,#b90a57); border-color:#ff4a99}
+  .out{
+    display:grid; gap:12px; grid-template-columns: 1fr; 
+  }
+  @media(min-width:980px){
+    .out{grid-template-columns: 1.2fr .8fr}
+  }
+  .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace}
+  .timestamp{
+    font-size:clamp(16px,2.2vw,22px); line-height:1.35; padding:12px; 
+    background:#0b0f1c; border:1px dashed #2a3050; border-radius:10px; word-wrap:anywhere
+  }
+  .pill{display:inline-block; padding:4px 8px; border-radius:999px; background:#101833; border:1px solid #2a3b66; color:#a6b3d9; font-size:12px; margin-right:6px}
+  .log{
+    height:200px; overflow:auto; background:#0b0f1c; border:1px solid #223259; border-radius:10px; padding:8px
+  }
+  .log .line{padding:4px 2px; border-bottom:1px dotted #203056}
+  canvas{width:100%; height:340px; background:linear-gradient(180deg,#0b0f1c,#0a0a0f)}
+  .mut{color:var(--mut)}
+  .row3{display:grid; gap:10px; grid-template-columns: 1fr 1fr 1fr}
+  .sep{height:1px; background:#25305a; margin:10px 0}
+</style>
+</head>
+<body>
+  <h1>CUARPP — Forjador de Timestamps Fractales</h1>
+  <p class="lead">Ciclos de <strong>1/p</strong>, tejido posicional y modulación <strong>mod7 + mod10</strong> en un solo golpe. Genera, visualiza, descarga.</p>
+
+  <div class="grid">
+    <!-- LADO IZQUIERDO: CONTROLES -->
+    <div class="card">
+      <label>Tipo de entrada</label>
+      <select id="inputType">
+        <option value="decimal">Decimal (ej: 0.142857)</option>
+        <option value="fraction">Fracción a/b (ej: 1/7)</option>
+        <option value="intdec">Entero con decimales (ej: 196.0)</option>
+      </select>
+
+      <div id="decimalBox">
+        <label>Decimal</label>
+        <input id="decimalVal" placeholder="0.142857 o 3.5 o 0.3333..." />
+      </div>
+
+      <div id="fractionBox" style="display:none">
+        <div class="row">
+          <div>
+            <label>Numerador (a)</label>
+            <input id="numVal" type="number" placeholder="1" />
+          </div>
+          <div>
+            <label>Denominador (b)</label>
+            <input id="denVal" type="number" placeholder="7" />
+          </div>
+        </div>
+      </div>
+
+      <div id="intdecBox" style="display:none">
+        <label>Entero con decimales</label>
+        <input id="intdecVal" placeholder="196.0, 210.5, etc." />
+      </div>
+
+      <div class="sep"></div>
+
+      <label>Esquema de tejido</label>
+      <select id="scheme">
+        <option value="cycle">Ciclo primo (usa expansión repetitiva)</option>
+        <option value="posmul">Multiplicación posicional (estilo 1/7 → 0:316…)</option>
+        <option value="mixed">Mixto (mod7 + mod10)</option>
+      </select>
+
+      <div class="row">
+        <div>
+          <label>Longitud de salida (tokens)</label>
+          <input id="length" type="number" value="16" />
+        </div>
+        <div>
+          <label>Separador para “.”</label>
+          <input id="dotSep" value=":" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Primo p (solo para ciclo 1/p) </label>
+          <input id="primeP" type="number" placeholder="7, 17, 19..." />
+        </div>
+        <div>
+          <label>Semilla/Offset (rotación del ciclo)</label>
+          <input id="offset" type="number" value="0" />
+        </div>
+      </div>
+
+      <div class="btns">
+        <button class="primary" id="btnGen">Generar</button>
+        <button id="btnStep">Paso (+1)</button>
+        <button class="ok" id="btnAll">Todo</button>
+        <button class="warn" id="btnReset">Reset</button>
+        <button id="btnCSV">Descargar CSV</button>
+      </div>
+      <p class="mut" style="margin-top:10px">
+        Tip: para **1/7** con tu estilo, elige: Entrada = Fracción 1/7, Esquema = Multiplicación posicional, separador “.” → “:”.
+      </p>
+    </div>
+
+    <!-- LADO DERECHO: SALIDAS -->
+    <div class="out">
+      <div class="card">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px">
+          <span class="pill" id="pillMode">—</span>
+          <span class="pill" id="pillCycle">—</span>
+          <span class="pill" id="pillLen">—</span>
+        </div>
+        <div class="timestamp mono" id="tsOut">—</div>
+        <div class="sep"></div>
+        <div class="log mono" id="log"></div>
+      </div>
+      <div class="card">
+        <canvas id="viz" width="900" height="600"></canvas>
+      </div>
+    </div>
+  </div>
+
+<script>
+/** Utilidades **/
+
+const $ = (id)=>document.getElementById(id);
+const state = {
+  tokens: [],      // array de strings (fragmentos)
+  built: "",       // timestamp acumulado
+  pointer: 0,      // avance para "Paso"
+  cycle: "",       // ciclo base (p.ej. "142857")
+  meta: {},        // metadatos
+  history: []      // registro de piezas
+};
+
+// Mostrar/ocultar cajas de entrada
+$('inputType').addEventListener('change', ()=>{
+  const t = $('inputType').value;
+  $('decimalBox').style.display = (t==='decimal')?'block':'none';
+  $('fractionBox').style.display = (t==='fraction')?'block':'none';
+  $('intdecBox').style.display = (t==='intdec')?'block':'none';
+});
+
+function gcd(a,b){ while(b){[a,b]=[b,a%b]} return Math.abs(a) }
+
+function toFractionFromDecimal(decStr){
+  // Convierte decimal string a fracción exacta si es finito; si es periódico aproximado, usa precision
+  if(!/^[+-]?\d+(\.\d+)?$/.test(decStr.trim())) return null;
+  const neg = decStr.trim().startsWith('-');
+  const abs = neg ? decStr.trim().slice(1) : decStr.trim();
+  if(!abs.includes('.')){ // entero
+    const n = parseInt(abs,10);
+    return {num: neg?-n:n, den:1};
+  }
+  const [a,b]=abs.split('.');
+  const den = 10**b.length;
+  const num = parseInt(a,10)*den + parseInt(b,10);
+  const g = gcd(num,den);
+  const nn = (neg?-num:num)/g, dd = den/g;
+  return {num: nn, den: dd};
+}
+
+function decimalExpansionOfFraction(num, den, limit=200){
+  // Genera expansión decimal (sin notación científica) y ciclo repetitivo si existe
+  // Devuelve {prefix, cycle} donde prefix puede incluir "0." y parte no cíclica, y cycle es el periodo repetido (o "" si finito)
+  let sign = (num*den<0)?"-":"";
+  num=Math.abs(num); den=Math.abs(den);
+  const intPart = Math.floor(num/den);
+  let rem = num%den;
+
+  let decimals = "";
+  const seen = new Map();
+  let pos = 0, repeatStart=-1;
+
+  while(rem!==0 && decimals.length<limit){
+    if(seen.has(rem)){ repeatStart = seen.get(rem); break; }
+    seen.set(rem,pos);
+    rem*=10;
+    const digit = Math.floor(rem/den);
+    decimals += String(digit);
+    rem = rem % den;
+    pos++;
+  }
+
+  if(rem===0){
+    // finito
+    const prefix = sign + intPart + (decimals.length?("."+decimals):"");
+    return {prefix, cycle:""};
+  }else{
+    // repetición
+    const nonrep = decimals.slice(0,repeatStart);
+    const rep = decimals.slice(repeatStart);
+    const prefix = sign + intPart + "." + nonrep;
+    return {prefix, cycle: rep};
+  }
+}
+
+function expandFromInput(){
+  const type = $('inputType').value;
+  let prefix="", cycle="";
+  if(type==='decimal'){
+    const d = $('decimalVal').value.trim();
+    const frac = toFractionFromDecimal(d);
+    if(!frac) {
+      prefix = d || "0";
+      cycle = ""; // lo tratamos literal
+    } else {
+      const de = decimalExpansionOfFraction(frac.num, frac.den);
+      prefix = de.prefix; cycle = de.cycle;
+    }
+  }else if(type==='fraction'){
+    const a = parseInt($('numVal').value||"1",10);
+    const b = parseInt($('denVal').value||"7",10);
+    const de = decimalExpansionOfFraction(a,b);
+    prefix = de.prefix; cycle = de.cycle;
+  }else{
+    // intdec
+    const s = $('intdecVal').value.trim() || "196.0";
+    const frac = toFractionFromDecimal(s) || {num:196, den:1};
+    const de = decimalExpansionOfFraction(frac.num, frac.den);
+    prefix = de.prefix; cycle = de.cycle;
+  }
+  return {prefix, cycle};
+}
+
+function normalizeCycleForPrime(pProvided, fallbackCycle){
+  // Si p (primo) está dado, usar 1/p; si no, usar ciclo detectado / entrada
+  const p = parseInt(($('primeP').value||"").trim(),10);
+  if(Number.isInteger(p) && p>1){
+    const de = decimalExpansionOfFraction(1,p);
+    return de.cycle || de.prefix.replace(/^.*?\./,''); // si finito, toma decimales
+  }
+  return fallbackCycle;
+}
+
+function buildTokens({scheme, prefix, cycle, length, dotSep, offset}){
+  const tokens = [];
+  const hist = [];
+  const baseStr = (prefix || "") + (cycle?("("+cycle+")"):""); // informativo
+  const justDigits = (prefix.replace(/^\-?\d+\./,'') + cycle); // decimales
+  const anchor = (prefix.includes(".")) ? (prefix.split(".")[0] || "0") : prefix || "0";
+  let pos = 1;
+
+  if(scheme==='cycle'){
+    let cyc = cycle || justDigits || "0";
+    if(cyc.length===0) cyc="0";
+    // aplicar offset
+    offset = ((offset%cyc.length)+cyc.length)%cyc.length;
+    for(let i=0;i<length;i++){
+      const d = cyc[(i+offset)%cyc.length];
+      tokens.push(String(d));
+      hist.push({i:i+1, kind:'cycle', d});
+    }
+    state.meta.info = `Ciclo="${cyc}"`;
+  }
+  else if(scheme==='posmul'){
+    // Reproducir tu estilo: incluir "0" y "." → ":" como cabecera si corresponde
+    // 1* "0" = "0"
+    // 2* "." → ":" (map)
+    // luego multiplicación posicional por cada dígito decimal (desde la primera cifra)
+    const head = [];
+    const hasDot = prefix.includes(".");
+    const intPart = (prefix.split(".")[0] || "0");
+    // token 1: entero principal “0” (o el entero si no es 0)
+    head.push(intPart);
+    // token 2: separador (dot→custom)
+    if(hasDot) head.push(dotSep);
+
+    // ahora dígitos decimales fuente = (dec de prefix sin repetir) + (ciclo repetido para rellenar)
+    const pdec = prefix.includes(".") ? prefix.split(".")[1] : "";
+    let sourceDigits = pdec;
+    if(cycle){
+      while(sourceDigits.length < Math.max(2, length)){
+        sourceDigits += cycle;
+      }
+    }
+    // Construir multiplicaciones posicionales
+    // posición arranca en 3 si hubo punto, si no en 2
+    pos = hasDot ? 3 : 2;
+    const out = [];
+    for(let i=0; i<sourceDigits.length && out.length < length; i++){
+      const ch = sourceDigits[i];
+      if(!/\d/.test(ch)) continue;
+      const n = parseInt(ch,10);
+      const prod = String(pos*n);
+      out.push(prod);
+      hist.push({i:pos, kind:'posmul', n, prod});
+      pos++;
+    }
+    // pegar cabeza + out y cortar a length total
+    const combined = [...head, ...out].slice(0,length);
+    // también registrar cabeza
+    if(head.length>=1){ hist.unshift({i:1, kind:'head', val:intPart}); }
+    if(hasDot){ hist.splice(1,0,{i:2, kind:'dot', map:`"."→"${dotSep}"`}); }
+    tokens.push(...combined);
+    state.meta.info = `Base="${prefix}" Ciclo="${cycle||''}"`;
+  }
+  else {
+    // mixed: para cada paso calcula mod7+mod10 del valor bruto del contexto
+    // Valor bruto = (suma dígitos decimales hasta ese punto)*13 + offset
+    const decStream = (()=>{
+      let dec = prefix.includes(".") ? prefix.split(".")[1] : "";
+      if(cycle){
+        while(dec.length < length) dec += cycle;
+      }
+      return dec;
+    })();
+    let acc = 0;
+    for(let i=0;i<length;i++){
+      const ch = decStream[i%decStream.length] || "0";
+      const d = parseInt(ch,10);
+      acc += (Number.isFinite(d)?d:0);
+      const raw = acc*13 + i + offset;
+      const m7 = ((raw%7)+7)%7, m10=((raw%10)+10)%10;
+      const val = (m7 + m10);
+      tokens.push(String(val));
+      hist.push({i:i+1, kind:'mixed', raw, m7, m10, val});
+    }
+    state.meta.info = `Mixed con decStream="${decStream.slice(0,Math.min(32,decStream.length))}${decStream.length>32?'…':''}"`;
+  }
+
+  state.history = hist;
+  return tokens;
+}
+
+function render(){
+  $('tsOut').textContent = state.built || "—";
+  $('pillMode').textContent = "Esquema: " + ($('scheme').options[$('scheme').selectedIndex].text);
+  $('pillCycle').textContent = state.meta.info || "—";
+  $('pillLen').textContent = `Tokens: ${state.tokens.length} (ptr=${state.pointer})`;
+
+  const log = $('log'); log.innerHTML = "";
+  state.history.slice(0,200).forEach(h=>{
+    let s = "";
+    if(h.kind==='cycle') s = `#${h.i}  [cycle] d=${h.d}`;
+    if(h.kind==='head') s = `#1  [head] ${h.val}`;
+    if(h.kind==='dot') s = `#2  [dot] ${h.map}`;
+    if(h.kind==='posmul') s = `#${h.i}  [pos] ${h.i}×${h.n} = ${h.prod}`;
+    if(h.kind==='mixed') s = `#${h.i}  [mixed] raw=${h.raw}  m7=${h.m7}  m10=${h.m10}  → ${h.val}`;
+    const div = document.createElement('div');
+    div.className = "line";
+    div.textContent = s;
+    log.appendChild(div);
+  });
+  draw();
+}
+
+function generateAll(){
+  const t = state.tokens.join('');
+  state.built = t;
+  state.pointer = state.tokens.length;
+  render();
+}
+function stepOne(){
+  if(state.pointer >= state.tokens.length) return;
+  state.built += state.tokens[state.pointer];
+  state.pointer++;
+  render();
+}
+function resetAll(){
+  state.tokens = [];
+  state.built = "";
+  state.pointer = 0;
+  state.cycle = "";
+  state.meta = {};
+  state.history = [];
+  render();
+}
+
+/** Visualización circular en canvas (pseudo-3D) **/
+function draw(){
+  const ctx = $('viz').getContext('2d');
+  const w = ctx.canvas.width, h = ctx.canvas.height;
+  ctx.clearRect(0,0,w,h);
+  // fondo
+  const g = ctx.createLinearGradient(0,0,0,h);
+  g.addColorStop(0,"#0c1122"); g.addColorStop(1,"#090a10");
+  ctx.fillStyle = g; ctx.fillRect(0,0,w,h);
+
+  // anillo
+  const cx = w*0.52, cy = h*0.52;
+  const R = Math.min(w,h)*0.32;
+  // borde suave
+  ctx.beginPath();
+  ctx.arc(cx,cy,R+20,0,Math.PI*2);
+  ctx.strokeStyle = "#1e2650"; ctx.lineWidth = 26; ctx.stroke();
+
+  if(state.tokens.length===0) return;
+
+  // dibujar tokens alrededor
+  const N = state.tokens.length;
+  const now = performance.now()/1000;
+  const tilt = Math.sin(now*0.6)*0.25; // pseudo 3D
+  for(let i=0;i<N;i++){
+    const a = (i/N)*Math.PI*2 + now*0.25; // rotación
+    const x = cx + Math.cos(a)*R;
+    const y = cy + Math.sin(a)*R*(1-0.35+0.35*Math.cos(tilt)); // aplastar para 3D
+    const s = state.tokens[i];
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.rotate(a + Math.PI/2);
+    const shade = i<state.pointer ? "#00e0a4" : "#7d3cff";
+    ctx.fillStyle = shade;
+    ctx.font = "bold 16px ui-monospace, Menlo, Consolas";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(s, 0, 0);
+    ctx.restore();
+  }
+
+  // centro: timestamp resumido
+  ctx.fillStyle = "#aab3d9";
+  ctx.font = "12px ui-monospace, Menlo, Consolas";
+  const tshow = (state.built.length>64)?(state.built.slice(0,64)+"…"):state.built || "—";
+  ctx.fillText(tshow, cx, cy);
+  requestAnimationFrame(draw);
+}
+
+/** Eventos **/
+$('btnGen').addEventListener('click', ()=>{
+  state.built = ""; state.pointer=0; state.history=[];
+  const scheme = $('scheme').value;
+  const L = Math.max(1, parseInt($('length').value||"16",10));
+  const dotSep = $('dotSep').value || ":";
+  const offset = parseInt($('offset').value||"0",10);
+
+  // expandir entrada
+  const {prefix, cycle: cyc0} = expandFromInput();
+  const cycle = normalizeCycleForPrime($('primeP').value, cyc0);
+
+  // construir tokens
+  state.tokens = buildTokens({scheme, prefix, cycle, length:L, dotSep, offset});
+  render();
+});
+$('btnStep').addEventListener('click', stepOne);
+$('btnAll').addEventListener('click', generateAll);
+$('btnReset').addEventListener('click', resetAll);
+
+$('btnCSV').addEventListener('click', ()=>{
+  if(state.tokens.length===0){ alert("Primero genera algo, carnal 😎"); return; }
+  let csv = "idx,token\n";
+  state.tokens.forEach((t,i)=>{ csv += `${i+1},${JSON.stringify(t)}\n`; });
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "timestamp_fractal.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// Render inicial
+render();
+</script>
+</body>
+</html>
