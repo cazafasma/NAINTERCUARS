@@ -1,252 +1,393 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+ANONIMUS QUANTUM LENS v6.0 - MODO FINAL BOSS
 
-import argparse, json, math, random, statistics, sys
-from datetime import datetime
+Motor de ajedrez usando el sistema REAL:
+- c(t) = 15M km/s variable
+- Canales con fases (LANES=7)
+- ω_n(t) = c(t)·k_n
+- Energía local con umbrales
+- Impulsos (kicks) en capturas/jaques
+- Modo por energía medida NO por comparación directa
+"""
 
-# ---------- Utilidades ----------
-def clamp(v, lo, hi): 
-    return max(lo, min(hi, v))
+import chess
+import chess.engine
+import numpy as np
+import math
+from dataclasses import dataclass
 
-def softplus(x): 
-    return math.log1p(math.exp(x))
+# ========== PARÁMETROS CUÁNTICOS ==========
+C_BASE = 15_000_000.0  # "velocidad de la luz" variable (km/s)
+LANES = 7               # canales en paralelo
+EPS = 1e-9
+L_DOMAIN = 1.0          # dominio espacial
 
-# ---------- “Stockfish” sintético (eval flotante con compensaciones) ----------
-def stockfish_eval(position, move, game_phase, difficulty):
-    # valores base
-    material = position["material"] / 7.0
-    mobility  = math.sqrt(max(position["mobility"], 1)) / math.sqrt(7)
-    control   = position["control"] / 100.0
-    ev = material + mobility + control + (position["mobility"] / 10.0)
+@dataclass
+class LenteParams:
+    """Parámetros del sistema de lentes cuánticas"""
+    L: float = L_DOMAIN
+    c: float = C_BASE
+    alpha: float = 0.10    # amplitud modulación c(t)
+    beta: float = 0.05     # frecuencia modulación c(t)
+    intensidad: float = 1.0
+    umbral_atacar: float = 0.15   # umbral de energía para ATACAR
+    umbral_pensar: float = 0.08   # umbral de energía para PENSAR
 
-    if difficulty in ("HARD", "VERY_HARD"):
-        if game_phase == "OPENING":   ev *= 1.05
-        elif game_phase == "MIDDLEGAME": ev *= 1.10
-        else: ev *= 1.15
-        ev += (position["material"] % 100) / 1000.0  # heurística fina
-
-    if difficulty == "VERY_HARD":
-        ev += math.sin(position["control"] / 30.0) * 0.5  # patrón táctico
-        ev += (move * 0.0001)                              # ligera “memoria”
-
-    # ruido flotante controlado (dificultad mayor => menos error)
-    noise = {"NORMAL": 0.25, "HARD": 0.18, "VERY_HARD": 0.12}[difficulty]
-    ev += random.uniform(-noise, noise)
-
-    # sesgo para que no sea “perfecto”
-    ev += (move * 0.00001) * (1.0 / 7.0)
-    ev += math.sqrt(move) / math.sqrt(7) * 0.0001
-
-    return ev
-
-# ---------- Evaluación Modular (exacta) ----------
-def modular_eval(position, move, mode, prev_mode, consecutive_same_mode):
-    # valor bruto “entero”
-    valor = position["material"] * 100
-    valor += position["mobility"] * 10
-    valor += position["control"]
-    valor += move * 13       # primo para movimiento
-    if prev_mode != mode:
-        valor += 17          # cambio de estrategia
-    if consecutive_same_mode > 5:
-        valor -= consecutive_same_mode * 7  # penaliza atasco
-
-    mod7  = valor % 7
-    mod10 = valor % 10
-
-    if mode == "PENSAR":
-        suma = mod7 + mod10
-        # patrón especial
-        if mod7 == 6 and mod10 >= 8:
-            return suma + 3
-        return suma
-    else:  # ATACAR
-        producto = mod7 * mod10
-        if producto >= 40: 
-            return producto + 5  # táctica fuerte
-        if producto == 0: 
-            return 0             # neutra
-        return producto
-
-# ---------- Generar posición pseudo-realista ----------
-def generate_position(move_number, prev=None):
-    phase = "OPENING" if move_number < 15 else ("MIDDLEGAME" if move_number < 40 else "ENDGAME")
-    if prev:
-        material = prev["material"] + (random.random() - 0.5) * 100
-        mobility = prev["mobility"] + (random.random() - 0.5) * 10
-        control  = prev["control"]  + (random.random() - 0.5) * 20
-    else:
-        material = random.randint(500, 1500)
-        mobility = random.randint(10, 60)
-        control  = random.randint(0, 100)
-
-    material = int(clamp(material, 200, 2000))
-    mobility = int(clamp(mobility, 5, 60))
-    control  = int(clamp(control, 0, 100))
-
-    return {"material": material, "mobility": mobility, "control": control, "moveNumber": move_number, "phase": phase}
-
-# ---------- Decidir modo (PENSAR/ATACAR) ----------
-def decide_mode(position, prev_mode, eval_hist):
-    mobility, control, phase = position["mobility"], position["control"], position["phase"]
-    should_attack = False
-    if len(eval_hist) >= 3:
-        recent = eval_hist[-3:]
-        improving = all(i == 0 or recent[i]["modEval"] >= recent[i-1]["modEval"] for i in range(len(recent)))
-        if improving and phase != "OPENING":
-            should_attack = True
-
-    if control > 70 and mobility > 35: return "ATACAR"
-    if control < 30 and mobility < 20: return "PENSAR"
-    if phase == "OPENING": return "PENSAR"
-    if phase == "ENDGAME" and mobility > 25: return "ATACAR"
-    if prev_mode == "PENSAR" and mobility > 30: return "ATACAR"
-    if prev_mode == "ATACAR" and control < 40: return "PENSAR"
-    return "ATACAR" if should_attack else "PENSAR"
-
-# ---------- Detectar hueco explotable ----------
-def detect_hueco(mod_eval, sf_eval, mode):
-    sf_round = round(sf_eval * 10)
-    diff = abs(mod_eval - sf_round)
-    if mode == "ATACAR" and diff > 8:  return True, diff
-    if mode == "PENSAR" and diff > 5:  return True, diff
-    return False, diff
-
-# ---------- Simular una partida ----------
-def simulate_game(difficulty):
-    moves = 35 + random.randint(0, 30)  # 35-65
-    mod_score = 0.0
-    sf_score  = 0.0
-    move_hist = []
-    eval_hist = []
-    prev_mode = "PENSAR"
-    same = 0
-    prev_pos = None
-
-    for mv in range(1, moves + 1):
-        pos = generate_position(mv, prev_pos)
-        mode = decide_mode(pos, prev_mode, eval_hist)
-        same = same + 1 if mode == prev_mode else 1
-
-        mod_ev = modular_eval(pos, mv, mode, prev_mode, same)
-        sf_ev  = stockfish_eval(pos, mv, pos["phase"], difficulty)
-        detected, gap = detect_hueco(mod_ev, sf_ev, mode)
-
-        mod_adv = 0.0
-        sf_adv  = 0.0
-        if detected:
-            if mode == "ATACAR" and gap > 10:   mod_adv += 4.0
-            elif mode == "PENSAR" and gap > 6:  mod_adv += 2.0
-            elif gap > 8:                        mod_adv += 1.5
-
-        if mode == "ATACAR" and mod_ev >= 35: mod_adv += 1.5
-        if mode == "PENSAR" and mod_ev >= 12: mod_adv += 1.0
-
-        if difficulty in ("HARD", "VERY_HARD"):
-            if pos["phase"] == "MIDDLEGAME": sf_adv += 0.8
-            if pos["control"] > 60 and pos["mobility"] > 30: sf_adv += 1.0
-            if mv > 20 and difficulty == "VERY_HARD": mod_adv *= 0.85
-
-        sf_error = abs(sf_ev - round(sf_ev))
-        if sf_error > 0.4: mod_adv += 0.5
-        else:              sf_adv  += 0.3
-
-        mod_score += mod_adv
-        sf_score  += sf_adv
-
-        rec = {
-            "move": mv,
-            "position": pos,
-            "mode": mode,
-            "modEval": mod_ev,
-            "stockfishEval": sf_ev,
-            "hueco": gap,
-            "huecoDetected": detected,
-            "mod7": (pos["material"]*100 + pos["mobility"]*10 + pos["control"] + mv*13) % 7,
-            "mod10": (pos["material"]*100 + pos["mobility"]*10 + pos["control"] + mv*13) % 10,
-            "modAdvantage": mod_adv,
-            "sfAdvantage": sf_adv
+class SistemaLentesAjedrez:
+    """
+    Sistema de lentes cuánticas aplicado al ajedrez
+    """
+    def __init__(self, params: LenteParams):
+        self.p = params
+        self.n_canales = LANES
+        # Fases de los 7 canales
+        self.fases = np.linspace(0.0, 2*np.pi, self.n_canales, endpoint=False)
+        self.impulso = 0.0  # acumulador de kicks
+        self.hist_error = 0.0
+        self.t_global = 0.0  # tiempo cuántico
+    
+    def c_t(self, t):
+        """
+        c(t) = c / (1 + α·sin(β·t))
+        
+        Velocidad de luz VARIABLE en el tiempo
+        """
+        return self.p.c / (1.0 + self.p.alpha * np.sin(self.p.beta * t))
+    
+    def omega_n(self, n, t):
+        """
+        ω_n(t) = c(t) · k_n
+        donde k_n = n·π/L
+        
+        Frecuencia angular dependiente del tiempo
+        """
+        k_n = (n * np.pi) / max(self.p.L, EPS)
+        return self.c_t(t) * k_n
+    
+    def kick(self, magnitud=0.75):
+        """
+        Golpe externo al sistema
+        Se aplica en capturas, jaques, etc.
+        """
+        self.impulso += float(magnitud)
+    
+    def ajustar_parametros(self, error_hardware):
+        """
+        Ajuste dinámico de α y β basado en error medido
+        """
+        self.p.alpha = max(0.01, min(0.50, self.p.alpha + 0.10*error_hardware))
+        self.p.beta = max(0.01, min(0.25, self.p.beta + 0.05*error_hardware))
+        self.hist_error = 0.9*self.hist_error + 0.1*abs(error_hardware)
+    
+    def softprod(self, a, b, k=0.25):
+        """Producto suave para evitar explosiones"""
+        return np.sign(a*b) * (np.abs(a*b)**(1.0/(1.0+k)))
+    
+    def calcular_canal(self, x, t, n, fase_canal, indice_i, deltaC, S):
+        """
+        Calcula un canal cuántico individual
+        
+        Ψ_canal = sin(k_n·x) · e^(-iω_n(t)·t) + caos
+        
+        Devuelve energía y modo
+        """
+        k_n = (n * np.pi) / max(self.p.L, EPS)
+        omega = self.omega_n(n, t)
+        
+        # Señal base compleja
+        base = np.sin(k_n * x) * np.exp(-1j * omega * t)
+        
+        # Componente caótica
+        caos = 0.35*np.sin(0.7*t + fase_canal) + 0.65*np.cos(0.41*t + 0.5*fase_canal)
+        
+        # Error de hardware simulado
+        err_hw = 0.12*np.sin(0.13*t + fase_canal) + 0.05*np.random.uniform(-1, 1)
+        self.ajustar_parametros(err_hw)
+        
+        # Mezcla análisis (suma) vs forzar (producto)
+        analizar = np.real(base) + caos
+        forzar = self.softprod(np.real(base), (S**deltaC) * (1.0 + 0.10*indice_i))
+        
+        # Calcular ENERGÍA LOCAL
+        energia_analizar = np.mean(analizar**2)
+        energia_forzar = np.mean(forzar**2)
+        
+        # Decisión por UMBRAL de energía
+        energia_total = energia_analizar + energia_forzar + self.impulso
+        
+        if energia_total > self.p.umbral_atacar:
+            modo = "ATACAR"
+            salida = forzar * (1.0 + 0.25*self.impulso) * self.p.intensidad
+        elif energia_total > self.p.umbral_pensar:
+            modo = "PENSAR"
+            salida = analizar * self.p.intensidad
+        else:
+            modo = "LATENTE"
+            salida = (analizar + forzar) * 0.5 * self.p.intensidad
+        
+        return salida, modo, energia_total
+    
+    def funcion_onda_movimiento(self, board, move, move_number):
+        """
+        Evalúa un movimiento usando superposición de canales cuánticos
+        
+        Cada movimiento genera su propio campo cuántico
+        """
+        # Mapear características del tablero a parámetros cuánticos
+        material = self.calcular_material(board)
+        mobility = len(list(board.legal_moves))
+        
+        # Coordenadas cuánticas del movimiento
+        x = np.array([0.1, 0.3, 0.5, 0.7, 0.9])  # puntos de muestreo
+        
+        # Índices de canalización
+        indice_i = (material % 10) + 1
+        deltaC = 0.5 + (mobility / 100.0)
+        S = 1.0 + (move_number / 100.0)
+        
+        # Tiempo cuántico
+        t = self.t_global
+        
+        # Superposición de canales
+        field_total = np.zeros_like(x, dtype=float)
+        energias = []
+        modos_canales = []
+        
+        for k in range(self.n_canales):
+            fase_k = self.fases[k]
+            canal_sum = np.zeros_like(x, dtype=float)
+            
+            # Combinar armónicos n=1,2,3
+            for n in [1, 2, 3]:
+                salida, modo, energia = self.calcular_canal(
+                    x, t, n, fase_k, indice_i, deltaC, S
+                )
+                canal_sum += salida
+                energias.append(energia)
+                modos_canales.append(modo)
+            
+            field_total += canal_sum
+        
+        # Normalizar campo
+        field_total *= 1.0 / max(1.0, np.max(np.abs(field_total)) + 1e-6)
+        
+        # Energía total medida
+        energia_total = np.mean([e for e in energias])
+        
+        # Modo dominante por votación de canales
+        modo_atacar = sum(1 for m in modos_canales if m == "ATACAR")
+        modo_pensar = sum(1 for m in modos_canales if m == "PENSAR")
+        
+        if modo_atacar > modo_pensar:
+            modo_final = "ATACAR"
+        else:
+            modo_final = "PENSAR"
+        
+        # Score basado en energía y modo
+        score = energia_total * 100.0
+        if modo_final == "ATACAR":
+            score *= 1.5
+        
+        # Decaer impulso
+        self.impulso *= 0.96
+        
+        return {
+            'score': score,
+            'energia': energia_total,
+            'modo': modo_final,
+            'canales_atacar': modo_atacar,
+            'canales_pensar': modo_pensar,
+            'c_t': self.c_t(t),
+            'impulso': self.impulso
         }
-        move_hist.append(rec)
-        eval_hist.append(rec)
-        prev_mode = mode
-        prev_pos  = pos
+    
+    def calcular_material(self, board):
+        """Balance material simple"""
+        values = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3,
+                  chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
+        white = sum(len(board.pieces(pt, chess.WHITE)) * val for pt, val in values.items())
+        black = sum(len(board.pieces(pt, chess.BLACK)) * val for pt, val in values.items())
+        return abs(white - black)
+    
+    def avanzar_tiempo(self, dt=0.1):
+        """Avanza el tiempo cuántico del sistema"""
+        self.t_global += dt
 
-    margin = {"NORMAL": 1.35, "HARD": 1.25, "VERY_HARD": 1.15}[difficulty]
-    if mod_score > sf_score * margin: result = "MOD_WIN"
-    elif sf_score > mod_score * margin: result = "SF_WIN"
-    else: result = "DRAW"
+# ========== MOTOR DE AJEDREZ ==========
 
+def evaluar_movimiento_lentes(board, move, move_number, sistema_lentes):
+    """
+    Evalúa movimiento con sistema de lentes cuánticas
+    """
+    board.push(move)
+    
+    evaluacion = sistema_lentes.funcion_onda_movimiento(board, move, move_number)
+    
+    # Aplicar kicks por eventos especiales
+    if board.is_check():
+        sistema_lentes.kick(0.8)
+        evaluacion['score'] += 50
+    
+    if board.is_capture(move):
+        sistema_lentes.kick(0.5)
+        evaluacion['score'] += 30
+    
+    board.pop()
+    
+    return evaluacion
+
+def seleccionar_movimiento_lentes(board, move_number, sistema_lentes):
+    """
+    Selecciona mejor movimiento usando lentes cuánticas
+    """
+    legal_moves = list(board.legal_moves)
+    
+    if not legal_moves:
+        return None, None
+    
+    mejor_move = None
+    mejor_eval = None
+    mejor_score = float('-inf')
+    
+    for move in legal_moves:
+        evaluacion = evaluar_movimiento_lentes(board, move, move_number, sistema_lentes)
+        
+        if evaluacion['score'] > mejor_score:
+            mejor_score = evaluacion['score']
+            mejor_move = move
+            mejor_eval = evaluacion
+    
+    # Avanzar tiempo cuántico
+    sistema_lentes.avanzar_tiempo(0.08)
+    
+    return mejor_move, mejor_eval
+
+# ========== JUGAR PARTIDA ==========
+
+def jugar_modo_final_boss(stockfish_depth=8, verbose=True):
+    """
+    Partida con sistema de lentes cuánticas COMPLETO
+    """
+    board = chess.Board()
+    
+    try:
+        engine = chess.engine.SimpleEngine.popen_uci("/usr/games/stockfish")
+        engine.configure({"Skill Level": 20})
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+    
+    # Inicializar sistema de lentes
+    params = LenteParams()
+    sistema = SistemaLentesAjedrez(params)
+    
+    move_number = 0
+    
+    print("\n" + "="*70)
+    print("🌀 ANONIMUS QUANTUM LENS - MODO FINAL BOSS")
+    print("="*70)
+    print(f"c(t) base = {C_BASE:,.0f} km/s (variable)")
+    print(f"Canales cuánticos: {LANES}")
+    print(f"Umbral ATACAR: {params.umbral_atacar}")
+    print(f"Umbral PENSAR: {params.umbral_pensar}")
+    print("="*70)
+    
+    while not board.is_game_over() and move_number < 100:
+        move_number += 1
+        
+        if board.turn == chess.WHITE:  # ANONIMUS
+            move, evaluacion = seleccionar_movimiento_lentes(board, move_number, sistema)
+            
+            if move and evaluacion:
+                if verbose and move_number % 10 == 0:
+                    print(f"\n🌀 Move #{move_number} - {board.san(move)}")
+                    print(f"   Modo: {evaluacion['modo']}")
+                    print(f"   Energía: {evaluacion['energia']:.4f}")
+                    print(f"   c(t): {evaluacion['c_t']:,.0f} km/s")
+                    print(f"   Canales: ATACAR={evaluacion['canales_atacar']}, PENSAR={evaluacion['canales_pensar']}")
+                    print(f"   Impulso acumulado: {evaluacion['impulso']:.3f}")
+                    print(f"   α={sistema.p.alpha:.3f}, β={sistema.p.beta:.3f}")
+        else:
+            result = engine.play(board, chess.engine.Limit(depth=stockfish_depth))
+            move = result.move
+        
+        if move:
+            board.push(move)
+    
+    engine.quit()
+    
+    result = board.result()
+    winner = "ANONIMUS" if result == "1-0" else "STOCKFISH" if result == "0-1" else "EMPATE"
+    
+    print("\n" + "="*70)
+    print(f"Resultado: {result} - {winner}")
+    print(f"Tiempo cuántico final: t={sistema.t_global:.2f}")
+    print(f"Parámetros finales: α={sistema.p.alpha:.3f}, β={sistema.p.beta:.3f}")
+    print(f"Error acumulado: {sistema.hist_error:.4f}")
+    print("="*70 + "\n")
+    
     return {
-        "moves": moves,
-        "modScore": mod_score,
-        "stockfishScore": sf_score,
-        "result": result,
-        "moveHistory": move_hist,
-        "difficulty": difficulty
+        'resultado': result,
+        'ganador': winner,
+        'movimientos': move_number,
+        'tiempo_cuantico': sistema.t_global,
+        'alpha_final': sistema.p.alpha,
+        'beta_final': sistema.p.beta
     }
 
-# ---------- Main ----------
+# ========== MAIN ==========
+
 def main():
-    ap = argparse.ArgumentParser(description="Simulador ANONIMUS™ vs Stockfish sintético")
-    ap.add_argument("--games", type=int, default=100, help="Número de partidas (por defecto 100)")
-    ap.add_argument("--difficulty", choices=["NORMAL","HARD","VERY_HARD"], default="HARD", help="Dificultad")
-    ap.add_argument("--out", type=str, default="", help="Archivo JSON para guardar resultados")
-    ap.add_argument("--muestra", action="store_true", help="Imprime una partida con movimientos clave")
-    args = ap.parse_args()
-
-    random.seed(42)
-
-    results = []
-    mod_w = sf_w = dr = 0
-    for _ in range(args.games):
-        g = simulate_game(args.difficulty)
-        results.append(g)
-        if g["result"] == "MOD_WIN": mod_w += 1
-        elif g["result"] == "SF_WIN": sf_w += 1
-        else: dr += 1
-
-    wr = (mod_w / args.games) * 100.0
-    print("\n=== ANONIMUS™ Chess Simulation ===")
-    print(f"Fecha: {datetime.now().isoformat(sep=' ', timespec='seconds')}")
-    print(f"Dificultad: {args.difficulty}")
-    print(f"Partidas: {args.games}")
-    print(f"Victorias ANONIMUS: {mod_w}")
-    print(f"Victorias Stockfish: {sf_w}")
-    print(f"Empates: {dr}")
-    print(f"Win Rate ANONIMUS: {wr:.2f}%")
-
-    if args.muestra and results:
-        g = results[0]
-        print("\n--- Partida de muestra (huecos detectados) ---")
-        cnt = 0
-        for m in g["moveHistory"]:
-            if m["huecoDetected"]:
-                cnt += 1
-                if cnt > 20: break
-                print(f"#{m['move']:02d} [{m['position']['phase'][:1]}] "
-                      f"{m['mode']:6s}  mod7={m['mod7']}  mod10={m['mod10']}  "
-                      f"Eval={m['modEval']:.1f}  SF={m['stockfishEval']:.3f}  "
-                      f"Hueco=🎯 {m['hueco']:.1f}  Ventaja=+{m['modAdvantage']:.1f}")
-
-    if args.out:
-        payload = {
-            "meta": {
-                "date": datetime.now().isoformat(),
-                "difficulty": args.difficulty,
-                "games": args.games
-            },
-            "summary": {
-                "modWins": mod_w,
-                "stockfishWins": sf_w,
-                "draws": dr,
-                "winRate": wr
-            },
-            "results": results
-        }
-        with open(args.out, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        print(f"\nGuardado en: {args.out}")
+    print("\n" + "="*70)
+    print("🌀 ANONIMUS QUANTUM LENS v6.0")
+    print("="*70)
+    print("Sistema REAL con:")
+    print("  • c(t) = 15M km/s variable")
+    print("  • 7 canales cuánticos con fases")
+    print("  • ω_n(t) = c(t)·k_n")
+    print("  • Energía local con umbrales")
+    print("  • Impulsos en capturas/jaques")
+    print("  • Modo por medición de energía")
+    print("="*70 + "\n")
+    
+    num_games = int(input("¿Cuántas partidas para el MODO FINAL BOSS? (1-5): ") or "3")
+    
+    resultados = {"ANONIMUS": 0, "STOCKFISH": 0, "EMPATE": 0}
+    
+    for i in range(num_games):
+        print(f"\n{'='*70}")
+        print(f"PARTIDA {i+1}/{num_games} - FINAL BOSS MODE")
+        print(f"{'='*70}")
+        
+        partida = jugar_modo_final_boss(
+            stockfish_depth=8,
+            verbose=(i==0)
+        )
+        
+        if partida:
+            resultados[partida['ganador']] += 1
+    
+    print("\n" + "="*70)
+    print("📊 RESULTADOS MODO FINAL BOSS")
+    print("="*70)
+    print(f"🏆 Victorias ANONIMUS:  {resultados['ANONIMUS']}")
+    print(f"🤖 Victorias Stockfish: {resultados['STOCKFISH']}")
+    print(f"🤝 Empates:             {resultados['EMPATE']}")
+    
+    if num_games > 0:
+        wr = (resultados['ANONIMUS'] / num_games) * 100
+        print(f"\n📈 Win Rate: {wr:.1f}%")
+        
+        if resultados['ANONIMUS'] > 0:
+            print("\n🎉 ¡IMPRESIONANTE! El sistema cuántico logró victoria(s)")
+        elif resultados['EMPATE'] > 0:
+            print("\n💪 Sistema cuántico aguantó empate(s)")
+        else:
+            print("\n🤔 Sistema cuántico necesita más calibración")
+    
+    print("="*70 + "\n")
 
 if __name__ == "__main__":
     main()
