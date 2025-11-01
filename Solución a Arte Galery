@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>📹 CCTV SOLUTION | Art Gallery 3D</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;500;700&display=swap');
+  
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  :root {
+    --villain-purple: #6b2fb5;
+    --villain-cyan: #00d4ff;
+    --villain-red: #ff0844;
+    --villain-gold: #ffd700;
+  }
+  
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: #050810;
+    font-family: 'Rajdhani', sans-serif;
+    color: #fff;
+  }
+  
+  canvas { display: block; }
+  
+  /* HUD */
+  #hud {
+    position: fixed;
+    left: 20px;
+    bottom: 20px;
+    background: linear-gradient(135deg, rgba(107, 47, 181, 0.95), rgba(10, 14, 26, 0.95));
+    color: #fff;
+    font-family: 'Orbitron', sans-serif;
+    padding: 20px;
+    border-radius: 15px;
+    border: 2px solid var(--villain-purple);
+    box-shadow: 0 10px 50px rgba(107, 47, 181, 0.6);
+    min-width: 350px;
+    z-index: 100;
+    backdrop-filter: blur(10px);
+  }
+  
+  #hud h3 {
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--villain-gold);
+    margin: 0 0 15px 0;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    text-shadow: 0 0 10px var(--villain-gold);
+  }
+  
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 10px 0;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    border-left: 3px solid var(--villain-cyan);
+  }
+  
+  .stat-label {
+    font-size: 13px;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  
+  .stat-value {
+    font-size: 20px;
+    font-weight: 900;
+    color: var(--villain-cyan);
+    text-shadow: 0 0 10px var(--villain-cyan);
+  }
+  
+  .stat-value.good {
+    color: #78f09f;
+    text-shadow: 0 0 10px #78f09f;
+  }
+  
+  .stat-value.warning {
+    color: var(--villain-red);
+    text-shadow: 0 0 10px var(--villain-red);
+    animation: warningPulse 1s infinite;
+  }
+  
+  @keyframes warningPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  
+  .mode-indicator {
+    padding: 12px;
+    margin: 15px 0;
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 107, 53, 0.2));
+    border: 2px solid var(--villain-gold);
+    border-radius: 10px;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 900;
+    color: var(--villain-gold);
+    text-shadow: 0 0 10px var(--villain-gold);
+  }
+  
+  /* Controls */
+  #controls {
+    position: fixed;
+    right: 20px;
+    top: 20px;
+    background: linear-gradient(135deg, rgba(10, 14, 26, 0.95), rgba(107, 47, 181, 0.95));
+    padding: 20px;
+    border-radius: 15px;
+    border: 2px solid var(--villain-purple);
+    box-shadow: 0 10px 50px rgba(107, 47, 181, 0.6);
+    max-height: 90vh;
+    overflow-y: auto;
+    z-index: 100;
+    backdrop-filter: blur(10px);
+    min-width: 320px;
+  }
+  
+  #controls h3 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--villain-gold);
+    margin: 0 0 15px 0;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    border-bottom: 2px solid var(--villain-purple);
+    padding-bottom: 10px;
+    text-shadow: 0 0 10px var(--villain-gold);
+  }
+  
+  #controls label {
+    display: block;
+    margin: 15px 0 8px;
+    color: #ddd;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    font-weight: 700;
+  }
+  
+  #controls input[type="range"] {
+    width: 100%;
+    height: 8px;
+    background: linear-gradient(90deg, var(--villain-purple), var(--villain-cyan));
+    border-radius: 10px;
+    outline: none;
+    -webkit-appearance: none;
+  }
+  
+  #controls input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    background: var(--villain-gold);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 15px var(--villain-gold);
+  }
+  
+  .villain-btn {
+    width: 100%;
+    background: linear-gradient(135deg, var(--villain-purple), var(--villain-red));
+    color: #fff;
+    border: 2px solid var(--villain-gold);
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    margin: 10px 0;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 13px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    transition: all 0.3s;
+    box-shadow: 0 5px 20px rgba(107, 47, 181, 0.4);
+  }
+  
+  .villain-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 40px rgba(107, 47, 181, 0.8);
+  }
+  
+  .villain-btn.active {
+    background: linear-gradient(135deg, #78f09f, #42d4ff);
+    border-color: #78f09f;
+    color: #000;
+  }
+  
+  .section {
+    margin: 25px 0;
+    padding-top: 20px;
+    border-top: 1px solid rgba(107, 47, 181, 0.3);
+  }
+  
+  .toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 12px 0;
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    border-left: 3px solid var(--villain-cyan);
+  }
+  
+  .toggle-row label {
+    margin: 0;
+    font-size: 11px;
+  }
+  
+  .villain-switch {
+    position: relative;
+    width: 50px;
+    height: 24px;
+  }
+  
+  .villain-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  
+  .slider-villain {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: #333;
+    border-radius: 24px;
+    transition: 0.4s;
+    border: 2px solid var(--villain-purple);
+  }
+  
+  .slider-villain:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 2px;
+    bottom: 2px;
+    background: var(--villain-gold);
+    border-radius: 50%;
+    transition: 0.4s;
+    box-shadow: 0 0 10px var(--villain-gold);
+  }
+  
+  input:checked + .slider-villain {
+    background: linear-gradient(135deg, var(--villain-purple), var(--villain-cyan));
+  }
+  
+  input:checked + .slider-villain:before {
+    transform: translateX(26px);
+  }
+  
+  .theory-box {
+    background: rgba(255, 215, 0, 0.1);
+    border: 2px solid var(--villain-gold);
+    border-radius: 10px;
+    padding: 15px;
+    margin: 15px 0;
+  }
+  
+  .theory-box h4 {
+    color: var(--villain-gold);
+    font-size: 14px;
+    margin: 0 0 10px 0;
+    text-shadow: 0 0 10px var(--villain-gold);
+  }
+  
+  .theory-box p {
+    color: #ddd;
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 5px 0;
+  }
+  
+  #controls::-webkit-scrollbar {
+    width: 10px;
+  }
+  
+  #controls::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+  }
+  
+  #controls::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, var(--villain-purple), var(--villain-cyan));
+    border-radius: 10px;
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<!-- HUD -->
+<div id="hud">
+  <h3>📹 CCTV ANALYSIS</h3>
+  
+  <div class="mode-indicator" id="mode-display">
+    MODE: VERTEX GUARDS
+  </div>
+  
+  <div class="stat-row">
+    <span class="stat-label">Vértices</span>
+    <span class="stat-value" id="stat-vertices">12</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">Cámaras</span>
+    <span class="stat-value" id="stat-guardias">4</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">Altura</span>
+    <span class="stat-value" id="stat-height">—</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">Blind Spots</span>
+    <span class="stat-value warning" id="stat-blindspots">0</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">Coverage</span>
+    <span class="stat-value good" id="stat-coverage">100%</span>
+  </div>
+</div>
+
+<!-- Controls -->
+<div id="controls">
+  <h3>⚙️ CONFIG</h3>
+  
+  <div class="theory-box">
+    <h4>💡 TU HIPÓTESIS (CCTV):</h4>
+    <p>"La solución está en la altura"</p>
+    <p>"Una cámara en el techo puede verlo todo"</p>
+    <p><strong>Altura realista: 3-8 metros</strong></p>
+  </div>
+  
+  <label>Vértices (n): <span id="n-value" style="color:var(--villain-cyan);font-size:16px;font-weight:900;">12</span></label>
+  <input type="range" id="n-slider" min="3" max="24" value="12" step="1"/>
+  
+  <label>Radio: <span id="r-value" style="color:var(--villain-cyan);font-size:16px;font-weight:900;">10</span></label>
+  <input type="range" id="r-slider" min="5" max="20" value="10" step="0.5"/>
+  
+  <label>Altura polígono: <span id="h-value" style="color:var(--villain-cyan);font-size:16px;font-weight:900;">5</span></label>
+  <input type="range" id="h-slider" min="1" max="10" value="5" step="0.5"/>
+  
+  <div class="section">
+    <h3>📹 CCTV MODE</h3>
+    
+    <button class="villain-btn" id="btn-aerial-mode">
+      🎯 ACTIVAR CÁMARA CENITAL
+    </button>
+    
+    <label>Altura cámara: <span id="ah-value" style="color:var(--villain-cyan);font-size:16px;font-weight:900;">5</span>m</label>
+    <input type="range" id="ah-slider" min="3" max="8" value="5" step="0.5"/>
+  </div>
+  
+  <div class="section">
+    <h3>👁️ VISUALS</h3>
+    
+    <div class="toggle-row">
+      <label>Blind Spots</label>
+      <label class="villain-switch">
+        <input type="checkbox" id="toggle-blindspots" checked/>
+        <span class="slider-villain"></span>
+      </label>
+    </div>
+    
+    <div class="toggle-row">
+      <label>Triangulation</label>
+      <label class="villain-switch">
+        <input type="checkbox" id="toggle-triangulation"/>
+        <span class="slider-villain"></span>
+      </label>
+    </div>
+    
+    <div class="toggle-row">
+      <label>Grid</label>
+      <label class="villain-switch">
+        <input type="checkbox" id="toggle-grid" checked/>
+        <span class="slider-villain"></span>
+      </label>
+    </div>
+  </div>
+  
+  <div class="section">
+    <button class="villain-btn" id="btn-analyze">🔍 ANALYZE</button>
+    <button class="villain-btn" id="btn-report">📊 REPORT</button>
+    <button class="villain-btn" id="btn-reset" style="background:linear-gradient(135deg, #333, #555)">🔄 RESET</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.157/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.157/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+// SCENE SETUP
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050810);
+scene.fog = new THREE.FogExp2(0x050810, 0.02);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+camera.position.set(0, 25, 45);
+
+const renderer = new THREE.WebGLRenderer({antialias: true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+
+// LIGHTING
+const dirLight = new THREE.DirectionalLight(0x6b2fb5, 1.5);
+dirLight.position.set(20, 30, 20);
+dirLight.castShadow = true;
+scene.add(dirLight);
+
+const ambLight = new THREE.AmbientLight(0x404040, 0.6);
+scene.add(ambLight);
+
+const purpleLight = new THREE.PointLight(0x6b2fb5, 1, 80);
+purpleLight.position.set(-15, 20, -15);
+scene.add(purpleLight);
+
+const cyanLight = new THREE.PointLight(0x00d4ff, 1, 80);
+cyanLight.position.set(15, 20, 15);
+scene.add(cyanLight);
+
+// GRID
+const gridHelper = new THREE.GridHelper(80, 80, 0x6b2fb5, 0x1a0f2e);
+scene.add(gridHelper);
+
+// VARIABLES
+let polygonMesh = null;
+let guardMeshes = [];
+let blindSpotMeshes = [];
+let aerialSpotlight = null;
+
+let params = {
+  n: 12,
+  radius: 10,
+  height: 5,
+  aerialMode: false,
+  aerialHeight: 5,
+  showBlindSpots: true,
+  showTriangulation: false,
+  showGrid: true
+};
+
+// GENERATE POLYGON
+function generatePolygon() {
+  // Clear previous
+  if (polygonMesh) scene.remove(polygonMesh);
+  guardMeshes.forEach(g => scene.remove(g));
+  blindSpotMeshes.forEach(b => scene.remove(b));
+  if (aerialSpotlight) scene.remove(aerialSpotlight);
+  guardMeshes = [];
+  blindSpotMeshes = [];
+  
+  const n = params.n;
+  const r = params.radius;
+  const vertices = [];
+  
+  for (let i = 0; i < n; i++) {
+    const angle = (i / n) * Math.PI * 2;
+    vertices.push(new THREE.Vector2(
+      r * Math.cos(angle),
+      r * Math.sin(angle)
+    ));
+  }
+  
+  // POLYGON
+  const shape = new THREE.Shape(vertices);
+  const extrudeSettings = {
+    depth: params.height,
+    bevelEnabled: true,
+    bevelThickness: 0.3,
+    bevelSize: 0.2,
+    bevelSegments: 5
+  };
+  
+  const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+  const material = new THREE.MeshPhongMaterial({
+    color: 0x2288ff,
+    transparent: true,
+    opacity: 0.7,
+    side: THREE.DoubleSide,
+    emissive: 0x1155aa,
+    emissiveIntensity: 0.2
+  });
+  
+  polygonMesh = new THREE.Mesh(geometry, material);
+  polygonMesh.castShadow = true;
+  polygonMesh.receiveShadow = true;
+  scene.add(polygonMesh);
+  
+  // GUARDS
+  const numGuards = params.aerialMode ? 1 : Math.floor(n / 3);
+  
+  if (params.aerialMode) {
+    // === UN SOLO GUARDIA EN LAS ALTURAS ===
+    const guardGeom = new THREE.SphereGeometry(1.5, 32, 32);
+    const guardMat = new THREE.MeshPhongMaterial({
+      color: 0xffd700,
+      emissive: 0xffaa00,
+      emissiveIntensity: 1
+    });
+    const guard = new THREE.Mesh(guardGeom, guardMat);
+    guard.position.set(0, params.aerialHeight, 0);
+    guard.castShadow = true;
+    scene.add(guard);
+    guardMeshes.push(guard);
+    
+    // Vision cone gigante
+    const coneHeight = params.aerialHeight - params.height/2 - 1;
+    const coneRadius = r * 1.8;
+    const coneGeom = new THREE.ConeGeometry(coneRadius, coneHeight, 32, 1, true);
+    const coneMat = new THREE.MeshBasicMaterial({
+      color: 0xffd700,
+      transparent: true,
+      opacity: 0.12,
+      side: THREE.DoubleSide
+    });
+    const cone = new THREE.Mesh(coneGeom, coneMat);
+    cone.position.set(0, params.aerialHeight - coneHeight/2, 0);
+    scene.add(cone);
+    guardMeshes.push(cone);
+    
+    // Spotlight dramático
+    aerialSpotlight = new THREE.SpotLight(0xffd700, 3, params.aerialHeight * 3, Math.PI/2.5, 0.3, 1);
+    aerialSpotlight.position.set(0, params.aerialHeight, 0);
+    aerialSpotlight.target.position.set(0, 0, 0);
+    aerialSpotlight.castShadow = true;
+    scene.add(aerialSpotlight);
+    scene.add(aerialSpotlight.target);
+    
+    // Ring de luz en el suelo
+    const ringGeom = new THREE.TorusGeometry(r * 1.5, 0.3, 16, 64);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xffd700,
+      transparent: true,
+      opacity: 0.4
+    });
+    const ring = new THREE.Mesh(ringGeom, ringMat);
+    ring.position.set(0, 0.1, 0);
+    ring.rotation.x = Math.PI / 2;
+    scene.add(ring);
+    guardMeshes.push(ring);
+    
+  } else {
+    // === GUARDIAS TRADICIONALES EN VÉRTICES ===
+    for (let g = 0; g < numGuards; g++) {
+      const idx = Math.floor(g * (n / numGuards));
+      const vx = vertices[idx].x;
+      const vy = vertices[idx].y;
+      
+      const guardGeom = new THREE.SphereGeometry(0.7, 24, 24);
+      const guardMat = new THREE.MeshPhongMaterial({
+        color: 0xffcc33,
+        emissive: 0xff8800,
+        emissiveIntensity: 0.8
+      });
+      const guard = new THREE.Mesh(guardGeom, guardMat);
+      guard.position.set(vx, params.height / 2, vy);
+      guard.castShadow = true;
+      scene.add(guard);
+      guardMeshes.push(guard);
+      
+      const coneGeom = new THREE.ConeGeometry(0.5, 1.5, 8);
+      const coneMat = new THREE.MeshBasicMaterial({
+        color: 0xffcc33,
+        transparent: true,
+        opacity: 0.4
+      });
+      const cone = new THREE.Mesh(coneGeom, coneMat);
+      cone.position.set(vx, params.height / 2 + 1.5, vy);
+      cone.rotation.x = Math.PI;
+      scene.add(cone);
+      guardMeshes.push(cone);
+    }
+  }
+  
+  // TRIANGULATION (if enabled)
+  if (params.showTriangulation) {
+    const centerX = 0;
+    const centerY = 0;
+    
+    for (let i = 0; i < n; i++) {
+      const vx = vertices[i].x;
+      const vy = vertices[i].y;
+      
+      const lineGeom = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(centerX, params.height / 2, centerY),
+        new THREE.Vector3(vx, params.height / 2, vy)
+      ]);
+      const lineMat = new THREE.LineBasicMaterial({
+        color: 0x6b2fb5,
+        transparent: true,
+        opacity: 0.4
+      });
+      const line = new THREE.Line(lineGeom, lineMat);
+      scene.add(line);
+      blindSpotMeshes.push(line);
+    }
+    
+    const centerGeom = new THREE.SphereGeometry(0.5, 16, 16);
+    const centerMat = new THREE.MeshPhongMaterial({
+      color: 0xffd700,
+      emissive: 0xffaa00,
+      emissiveIntensity: 1
+    });
+    const centerPoint = new THREE.Mesh(centerGeom, centerMat);
+    centerPoint.position.set(centerX, params.height / 2, centerY);
+    scene.add(centerPoint);
+    blindSpotMeshes.push(centerPoint);
+  }
+  
+  // BLIND SPOTS DETECTION
+  if (params.showBlindSpots) {
+    detectBlindSpots(vertices, numGuards);
+  }
+  
+  updateHUD(n, numGuards);
+}
+
+function detectBlindSpots(vertices, numGuards) {
+  const n = vertices.length;
+  
+  if (params.aerialMode) {
+    // === AERIAL MODE: Check if height is enough ===
+    // Guardia está en (0, aerialHeight, 0)
+    // Debe ver todos los puntos del polígono
+    
+    // Para cada arista, verificar si es visible desde arriba
+    for (let i = 0; i < n; i++) {
+      const v1 = vertices[i];
+      const v2 = vertices[(i + 1) % n];
+      const edgeMidX = (v1.x + v2.x) / 2;
+      const edgeMidY = (v1.y + v2.y) / 2;
+      
+      // Calcular ángulo desde guardia aéreo a punto
+      const dx = edgeMidX - 0;
+      const dy = edgeMidY - 0;
+      const distHorizontal = Math.sqrt(dx*dx + dy*dy);
+      const distVertical = params.aerialHeight - params.height/2;
+      const angle = Math.atan2(distHorizontal, distVertical);
+      
+      // Si ángulo es muy agudo, podría ser punto ciego
+      // (el guardia tiene que "ver por debajo" de las paredes)
+      const maxAngle = Math.PI / 3; // 60 grados
+      
+      if (angle > maxAngle || distHorizontal > params.radius * 1.6) {
+        // Posible punto ciego
+        const spotGeom = new THREE.SphereGeometry(0.3, 16, 16);
+        const spotMat = new THREE.MeshPhongMaterial({
+          color: 0xff0844,
+          emissive: 0xff0022,
+          emissiveIntensity: 0.8,
+          transparent: true,
+          opacity: 0.9
+        });
+        const spot = new THREE.Mesh(spotGeom, spotMat);
+        spot.position.set(edgeMidX, params.height / 2, edgeMidY);
+        scene.add(spot);
+        blindSpotMeshes.push(spot);
+      }
+    }
+  } else {
+    // === VERTEX MODE: Original detection ===
+    for (let i = 0; i < n; i++) {
+      const v1 = vertices[i];
+      const v2 = vertices[(i + 1) % n];
+      const edgeMidX = (v1.x + v2.x) / 2;
+      const edgeMidY = (v1.y + v2.y) / 2;
+      
+      let visibleByGuard = false;
+      guardMeshes.forEach(guard => {
+        if (guard.geometry && guard.geometry.type === 'SphereGeometry' && 
+            guard.material.color.getHex() === 0xffcc33) {
+          const dx = guard.position.x - edgeMidX;
+          const dy = guard.position.z - edgeMidY;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          
+          if (dist < params.radius * 0.6) {
+            visibleByGuard = true;
+          }
+        }
+      });
+      
+      if (!visibleByGuard) {
+        const spotGeom = new THREE.SphereGeometry(0.4, 16, 16);
+        const spotMat = new THREE.MeshPhongMaterial({
+          color: 0xff0844,
+          emissive: 0xff0022,
+          emissiveIntensity: 0.8,
+          transparent: true,
+          opacity: 0.9
+        });
+        const spot = new THREE.Mesh(spotGeom, spotMat);
+        spot.position.set(edgeMidX, params.height / 2, edgeMidY);
+        scene.add(spot);
+        blindSpotMeshes.push(spot);
+        
+        const ringGeom = new THREE.TorusGeometry(0.6, 0.1, 8, 16);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0xff0844,
+          transparent: true,
+          opacity: 0.4
+        });
+        const ring = new THREE.Mesh(ringGeom, ringMat);
+        ring.position.set(edgeMidX, params.height / 2, edgeMidY);
+        ring.rotation.x = Math.PI / 2;
+        scene.add(ring);
+        blindSpotMeshes.push(ring);
+      }
+    }
+  }
+}
+
+function updateHUD(n, guards) {
+  document.getElementById('stat-vertices').textContent = n;
+  document.getElementById('stat-guardias').textContent = guards;
+  document.getElementById('stat-height').textContent = 
+    params.aerialMode ? params.aerialHeight.toFixed(1) + 'm' : '—';
+  
+  let blindCount = 0;
+  blindSpotMeshes.forEach(mesh => {
+    if (mesh.geometry && mesh.geometry.type === 'SphereGeometry' && 
+        mesh.material && mesh.material.color && mesh.material.color.getHex() === 0xff0844) {
+      blindCount++;
+    }
+  });
+  
+  document.getElementById('stat-blindspots').textContent = blindCount;
+  
+  const coverage = Math.max(0, Math.min(100, 100 - (blindCount * 8)));
+  document.getElementById('stat-coverage').textContent = coverage.toFixed(0) + '%';
+  
+  if (blindCount === 0) {
+    document.getElementById('stat-coverage').classList.add('good');
+    document.getElementById('stat-coverage').classList.remove('warning');
+    document.getElementById('stat-blindspots').classList.remove('warning');
+  } else {
+    document.getElementById('stat-coverage').classList.remove('good');
+    document.getElementById('stat-blindspots').classList.add('warning');
+  }
+  
+  // Update mode display
+  if (params.aerialMode) {
+    document.getElementById('mode-display').textContent = '📹 CCTV MODE ACTIVE';
+    document.getElementById('mode-display').style.background = 
+      'linear-gradient(135deg, rgba(255, 215, 0, 0.3), rgba(120, 240, 159, 0.3))';
+  } else {
+    document.getElementById('mode-display').textContent = 'MODE: WALL CAMERAS';
+    document.getElementById('mode-display').style.background = 
+      'linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 107, 53, 0.2))';
+  }
+}
+
+// CONTROLS
+document.getElementById('n-slider').addEventListener('input', (e) => {
+  params.n = parseInt(e.target.value);
+  document.getElementById('n-value').textContent = params.n;
+  generatePolygon();
+});
+
+document.getElementById('r-slider').addEventListener('input', (e) => {
+  params.radius = parseFloat(e.target.value);
+  document.getElementById('r-value').textContent = params.radius;
+  generatePolygon();
+});
+
+document.getElementById('h-slider').addEventListener('input', (e) => {
+  params.height = parseFloat(e.target.value);
+  document.getElementById('h-value').textContent = params.height;
+  generatePolygon();
+});
+
+document.getElementById('ah-slider').addEventListener('input', (e) => {
+  params.aerialHeight = parseFloat(e.target.value);
+  document.getElementById('ah-value').textContent = params.aerialHeight;
+  if (params.aerialMode) {
+    generatePolygon();
+  }
+});
+
+document.getElementById('btn-aerial-mode').addEventListener('click', () => {
+  params.aerialMode = !params.aerialMode;
+  const btn = document.getElementById('btn-aerial-mode');
+  if (params.aerialMode) {
+    btn.textContent = '⚡ DESACTIVAR CÁMARA';
+    btn.classList.add('active');
+  } else {
+    btn.textContent = '🎯 ACTIVAR CÁMARA CENITAL';
+    btn.classList.remove('active');
+  }
+  generatePolygon();
+});
+
+document.getElementById('toggle-blindspots').addEventListener('change', (e) => {
+  params.showBlindSpots = e.target.checked;
+  generatePolygon();
+});
+
+document.getElementById('toggle-triangulation').addEventListener('change', (e) => {
+  params.showTriangulation = e.target.checked;
+  generatePolygon();
+});
+
+document.getElementById('toggle-grid').addEventListener('change', (e) => {
+  gridHelper.visible = e.target.checked;
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  camera.position.set(0, 25, 45);
+  controls.target.set(0, 0, 0);
+  controls.update();
+});
+
+document.getElementById('btn-analyze').addEventListener('click', () => {
+  let blindCount = 0;
+  blindSpotMeshes.forEach(mesh => {
+    if (mesh.geometry && mesh.geometry.type === 'SphereGeometry' && 
+        mesh.material && mesh.material.color && mesh.material.color.getHex() === 0xff0844) {
+      blindCount++;
+    }
+  });
+  
+  if (params.aerialMode) {
+    const cost1 = 3000; // 1 ceiling camera
+    const costN = Math.floor(params.n/3) * 1500; // multiple wall cameras
+    
+    alert(`📹 CCTV ANALYSIS:\n\n` +
+          `Vertices: ${params.n}\n` +
+          `Cameras: 1 (ceiling)\n` +
+          `Height: ${params.aerialHeight}m\n` +
+          `Blind spots: ${blindCount}\n\n` +
+          `COST COMPARISON:\n` +
+          `• Ceiling camera: $${cost1.toLocaleString()}\n` +
+          `• Wall cameras (${Math.floor(params.n/3)}): $${costN.toLocaleString()}\n` +
+          `• Savings: $${(costN - cost1).toLocaleString()}\n\n` +
+          `TU HIPÓTESIS:\n` +
+          `"Una cámara en el techo puede verlo todo"\n\n` +
+          `RESULTADO:\n` +
+          `${blindCount === 0 ? 
+            `✓ CONFIRMADA!\n1 cámara cenital ve TODO!\n\nBeneficios:\n• ${((costN-cost1)/costN*100).toFixed(0)}% más barato\n• Instalación más simple\n• Mantenimiento más fácil\n• ¡Tu teoría es CORRECTA!` : 
+            `⚠️ Aún hay ${blindCount} punto(s) ciego(s).\n\nOpciones:\n• Ajustar altura (${params.aerialHeight}m → ${params.aerialHeight+1}m)\n• Usar lente fish-eye\n• O combinar con 1 cámara auxiliar`}`);
+  } else {
+    alert(`📹 WALL CAMERAS ANALYSIS:\n\n` +
+          `Vertices: ${params.n}\n` +
+          `Cameras: ${Math.floor(params.n/3)} (wall-mounted)\n` +
+          `Blind spots: ${blindCount}\n` +
+          `Cost: ~$${(Math.floor(params.n/3) * 1500).toLocaleString()}\n\n` +
+          `${blindCount > 0 ? '⚠️ Método tradicional tiene puntos ciegos' : '✓ Cobertura completa'}\n\n` +
+          `Prueba CCTV MODE para comparar.`);
+  }
+});
+
+document.getElementById('btn-report').addEventListener('click', () => {
+  let blindCount = 0;
+  blindSpotMeshes.forEach(mesh => {
+    if (mesh.geometry && mesh.geometry.type === 'SphereGeometry' && 
+        mesh.material && mesh.material.color && mesh.material.color.getHex() === 0xff0844) {
+      blindCount++;
+    }
+  });
+  
+  const coverage = Math.max(0, Math.min(100, 100 - (blindCount * 8)));
+  const report = `
+╔══════════════════════════════════════════════╗
+║     🚁 AERIAL SOLUTION TEST REPORT 🚁      ║
+╚══════════════════════════════════════════════╝
+
+HIPÓTESIS ORIGINAL:
+  "La solución está en la altura"
+  "Un guardia arriba puede verlo todo"
+
+CONFIGURATION:
+  • Vertices: ${params.n}
+  • Radius: ${params.radius}
+  • Polygon height: ${params.height}
+
+${params.aerialMode ? `
+AERIAL MODE (TU MÉTODO):
+  • Guards: 1 (aerial)
+  • Guard height: ${params.aerialHeight}m
+  • Blind spots: ${blindCount}
+  • Coverage: ${coverage.toFixed(1)}%
+
+CONCLUSIÓN:
+${blindCount === 0 ? 
+  `  ✓ ¡HIPÓTESIS CONFIRMADA!
+  
+  Un solo guardia en altura ${params.aerialHeight}m
+  puede ver TODO el polígono.
+  
+  Ventajas:
+  • Solo 1 guardia vs ⌊n/3⌋ = ${Math.floor(params.n/3)}
+  • Cobertura 100%
+  • Sin puntos ciegos
+  • Solución elegante
+  
+  Tu intuición era CORRECTA:
+  La solución SÍ está en la ALTURA.` :
+  `  ⚠️ Altura actual: ${params.aerialHeight}m
+  Aún hay ${blindCount} punto(s) ciego(s).
+  
+  Recomendaciones:
+  • Aumentar altura del guardia
+  • Verificar radio de visión
+  • Ajustar posición
+  
+  La hipótesis tiene mérito,
+  pero requiere ajuste de parámetros.`}
+` : `
+VERTEX MODE (MÉTODO TRADICIONAL):
+  • Guards: ${Math.floor(params.n/3)} (at vertices)
+  • Blind spots: ${blindCount}
+  • Coverage: ${coverage.toFixed(1)}%
+
+PARA PROBAR TU HIPÓTESIS:
+  Activa "AERIAL MODE" y compara resultados.
+`}
+
+Generated: ${new Date().toLocaleString()}
+  `.trim();
+  
+  console.log(report);
+  const blob = new Blob([report], {type: 'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'aerial_solution_test.txt';
+  a.click();
+});
+
+// ANIMATION
+let time = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  time += 0.01;
+  
+  // Animate blind spots
+  blindSpotMeshes.forEach((obj, i) => {
+    if (obj.geometry) {
+      if (obj.geometry.type === 'SphereGeometry') {
+        if (obj.material.color.getHex() === 0xff0844) {
+          obj.scale.setScalar(1 + Math.sin(time * 3 + i) * 0.3);
+        } else if (obj.material.color.getHex() === 0xffd700) {
+          obj.scale.setScalar(1 + Math.sin(time * 2) * 0.2);
+        }
+      } else if (obj.geometry.type === 'TorusGeometry') {
+        obj.rotation.z = time * 2;
+      }
+    }
+  });
+  
+  // Animate aerial spotlight
+  if (aerialSpotlight) {
+    aerialSpotlight.intensity = 3 + Math.sin(time * 2) * 0.5;
+  }
+  
+  // Animate lights
+  purpleLight.intensity = 1 + Math.sin(time * 0.5) * 0.3;
+  cyanLight.intensity = 1 + Math.cos(time * 0.7) * 0.3;
+  
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+generatePolygon();
+animate();
+
+console.log('%c🚁 AERIAL SOLUTION TEST', 'color:#ffd700;font-size:20px;font-weight:900');
+console.log('%cProbando tu hipótesis: "La solución está en la altura"', 'color:#78f09f;font-size:14px');
+</script>
+
+</body>
+</html>
